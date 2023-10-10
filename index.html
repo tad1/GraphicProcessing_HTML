@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<script src=" https://cdn.jsdelivr.net/npm/ace-builds@1.29.0/src-min-noconflict/ace.min.js "></script>
+<link href=" https://cdn.jsdelivr.net/npm/ace-builds@1.29.0/css/ace.min.css " rel="stylesheet">
+<script>
+    class Dragable extends HTMLElement {
+        constructor(){
+            super();
+
+            this.dragging = false
+            this.addEventListener("mousedown", (e)=>{this.dragging = true})
+            this.addEventListener("mouseup", ()=>{this.dragging = false})
+            this.addEventListener("mouseleave", ()=>{this.dragging = false})
+            this.addEventListener("mousemove", (e)=>{
+                console.log("move");
+                e.preventDefault()
+                if(this.dragging){
+                    this.style.left = (this.offsetLeft + e.movementX) + "px";
+                    this.style.top = (this.offsetTop + e.movementY) + "px"
+                }
+            })
+        }
+    }
+
+    class SourceConnector extends HTMLElement{
+        
+        constructor(){
+            super();
+
+            this.source = null;
+        }
+
+        connectedCallback(){
+            this.id = self.crypto.randomUUID();
+
+            this.setAttribute("draggable", "true")
+            this.addEventListener("dragstart", (e)=>{
+                e.dataTransfer.setData("text", this.id);
+            })
+        }
+
+        update(){
+            this.dispatchEvent(new Event("update"));
+        }
+
+    }
+
+    class OutputConnector extends HTMLElement{
+        constructor(){
+            super();
+
+            this.connection = null;
+        }
+
+
+        connectedCallback(){
+
+            this.addEventListener("dragover", (e)=> {console.log("dragover");e.preventDefault();})
+            this.addEventListener("drop", (e)=>{
+                let id = e.dataTransfer.getData("text");
+                this.connection = document.getElementById(id);
+
+                this.connection.addEventListener("update", ()=> {this.dispatchEvent(new CustomEvent("update"))})
+                let data = {
+                    source: this.connection.source,
+                    width: this.connection.source.width,
+                    height: this.connection.source.height
+                }
+                console.log("connected")
+                this.dispatchEvent(new CustomEvent("on_connect", {detail: data}));
+            })
+        }
+
+    }
+    customElements.define("source-connector", SourceConnector)
+    customElements.define("output-connector", OutputConnector)
+
+
+    class Input extends Dragable {
+        constructor(){
+            super();
+        }
+
+        connectedCallback(){
+            this.canvas = document.createElement("canvas")
+            this.context = this.canvas.getContext("2d");
+
+            this.output = document.createElement("source-connector");
+            this.output.source = this.canvas;
+            
+            this.appendChild(this.output)
+
+
+
+            this.appendChild(this.canvas);
+            this.addEventListener("dragover", (e)=>{
+                e.preventDefault();
+            })
+            this.addEventListener("drop", (e)=>{
+                e.preventDefault();
+                const reader = new FileReader();
+                reader.readAsDataURL(e.dataTransfer.files[0]);
+                reader.onload = () =>{
+                    const image = new Image();
+                    image.src = reader.result;
+
+                    image.onload = () => {
+                        this.canvas.width = image.width; 
+                        this.canvas.height = image.height; 
+                        this.context.drawImage(image, 0, 0);
+                        this.output.update();
+                    }
+                }
+            })
+        }
+
+    }
+
+    class Output extends Dragable {
+        constructor(){
+            super();
+        }
+
+        render(){
+            if(this.source)
+                this.context.drawImage(this.source, 0, 0)
+        }
+
+        connectedCallback(){
+            this.canvas = document.createElement("canvas")
+            this.context = this.canvas.getContext("2d")
+            this.appendChild(this.canvas);
+
+            this.input = document.createElement("output-connector");
+            this.appendChild(this.input)
+
+
+            this.input.addEventListener("on_connect", (e)=> {
+                console.log(e)
+                let data = e.detail;
+                this.source = data.source;
+
+                this.update();
+                
+            })
+
+            this.input.addEventListener("on_disconnect", (e)=> {
+                this.source = null;
+            })
+
+            this.input.addEventListener("update", () => {
+                this.update();
+            })
+        }
+
+        update(){
+                this.canvas.width = this.source.width;
+                this.canvas.height = this.source.height;
+                this.render();
+        }
+    }
+
+
+
+    class Shader extends Dragable {
+        constructor(){
+            super();
+        }
+
+        connectedCallback(){
+            this.buffer_canvas = document.createElement("canvas");
+            this.buffer_context = this.buffer_canvas.getContext("webgl");
+
+            this.input = new Connection()
+            this.input.type = "texture";
+
+        }
+    }
+
+    class Editor extends HTMLElement {
+        constructor(){
+            super();
+        }
+
+        connectedCallback(){
+            this.editor = document.createElement("div");
+            this.editor.id = self.crypto.randomUUID();
+            this.appendChild(this.editor);
+            
+            this.editor = ace.edit(this.editor.id);
+            // this.editor.setTheme("ace/theme/monkai")
+            this.editor.session.setMode("ace/mode/glsl")
+        }
+
+        getCode(){
+            return this.editor.getValue();
+        }
+    }
+    customElements.define("ace-editor", Editor);
+
+    class GLSL extends Dragable{
+        /**
+         * GLSL shader node
+         */ 
+        constructor(){
+            super();
+        }
+
+        connectedCallback(){
+            /** @type {Editor} */
+            this.editor = document.createElement("ace-editor")
+            this.editor.style.height = this.style.height;
+            this.editor.style.width = this.style.width;
+            this.appendChild(this.editor)
+
+            this.compile_btn = document.createElement("button");
+            this.compile_btn.innerText = "Compile";
+            this.appendChild(this.compile_btn);
+
+            /** @type {HTMLCanvasElement} */
+            this.buffer_canvas = document.createElement("canvas");
+            /** @type {WebGLRenderingContext} */
+            this.gl = this.buffer_canvas.getContext("webgl");
+
+            /** @type {HTMLCanvasElement} */
+            this.source = null;
+            /** @type {WebGLShader} */
+            this.shader = this.gl.createShader(this.gl.FRAGMENT_SHADER);
+            /** @type {WebGLProgram} */
+            this.program = this.gl.createProgram();
+            
+
+            /** @type {OutputConnector} */
+            this.input = document.createElement("output-connector");
+            /** @type {SourceConnector} */
+            this.output = document.createElement("source-connector");
+            this.output.source = this.buffer_canvas;
+            this.input.addEventListener("on_connect", (e)=>{
+                let data = e.detail;
+                this.source = data.source;
+                this.update();
+            })
+            this.input.addEventListener("update", ()=>{
+                this.update();
+            })
+
+            this.appendChild(this.input);
+            this.appendChild(this.output);
+            
+            this.compile_btn.addEventListener("click", ()=>{
+                this.compile();
+            })
+        }
+
+
+
+        /** @returns {WebGLShader} */
+        loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                alert(
+                `An error occurred compiling the shaders: ${gl.getShaderInfoLog(shader)}`,
+                );
+                gl.deleteShader(shader);
+                return null;
+            }
+
+            return shader;
+        }
+
+
+        update(){
+            if(!this.source){
+                return;
+            }
+            this.buffer_canvas.width = this.source.width;
+            this.buffer_canvas.height = this.source.height;
+            this.render();
+            this.output.dispatchEvent(new Event("update"))
+        }
+        compile(){
+            let code = this.editor.getCode();
+            
+
+            const vsSource = `
+                attribute vec2 a_position;
+                attribute vec2 a_texCoord;
+
+                uniform vec2 u_resolution;
+                varying vec2 v_texCoord;
+
+                void main() {
+                // convert the rectangle from pixels to 0.0 to 1.0
+                vec2 zeroToOne = a_position / u_resolution;
+
+                // convert from 0->1 to 0->2
+                vec2 zeroToTwo = zeroToOne * 2.0;
+
+                // convert from 0->2 to -1->+1 (clipspace)
+                vec2 clipSpace = zeroToTwo - 1.0;
+
+                gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+
+                // pass the texCoord to the fragment shader
+                // The GPU will interpolate this value between points.
+                v_texCoord = a_texCoord;
+                }`;
+            const vertex_shader =this.loadShader(this.gl, this.gl.VERTEX_SHADER, vsSource) 
+            const fragment_shader = this.loadShader(this.gl, this.gl.FRAGMENT_SHADER, code);
+            
+            this.gl.deleteProgram(this.program);
+            this.program = this.gl.createProgram();
+            this.gl.attachShader(this.program, vertex_shader);
+            this.gl.attachShader(this.program, fragment_shader);
+            this.gl.linkProgram(this.program);
+
+            this.update();
+        }
+        render(){
+            if(!this.source){
+                return;
+            }
+            // TODO: in future use auto detect parameters like kernel? Definetly an easier API is needed.
+            let image = this.source;
+            let gl = this.gl;
+
+            // look up where the vertex data needs to go.
+            var positionLocation = gl.getAttribLocation(this.program, "a_position");
+            var texcoordLocation = gl.getAttribLocation(this.program, "a_texCoord");
+
+            // Create a buffer to put three 2d clip space points in
+            var positionBuffer = gl.createBuffer();
+
+            // Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            // Set a rectangle the same size as the image.
+            this.setRectangle(gl, 0, 0, image.width, image.height);
+
+            // provide texture coordinates for the rectangle.
+            var texcoordBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                0.0,  0.0,
+                1.0,  0.0,
+                0.0,  1.0,
+                0.0,  1.0,
+                1.0,  0.0,
+                1.0,  1.0,
+            ]), gl.STATIC_DRAW);
+
+            // Create a texture.
+            var texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+
+            // Set the parameters so we can render any size image.
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+            // Upload the image into the texture.
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+            // lookup uniforms
+            var resolutionLocation = gl.getUniformLocation(this.program, "u_resolution");
+
+            // Tell WebGL how to convert from clip space to pixels
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+            // Clear the canvas
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            // Tell it to use our program (pair of shaders)
+            gl.useProgram(this.program);
+
+            // Turn on the position attribute
+            gl.enableVertexAttribArray(positionLocation);
+
+            // Bind the position buffer.
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+            // Tell the position attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+            var size = 2;          // 2 components per iteration
+            var type = gl.FLOAT;   // the data is 32bit floats
+            var normalize = false; // don't normalize the data
+            var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+            var offset = 0;        // start at the beginning of the buffer
+            gl.vertexAttribPointer(
+                positionLocation, size, type, normalize, stride, offset);
+
+            // Turn on the texcoord attribute
+            gl.enableVertexAttribArray(texcoordLocation);
+
+            // bind the texcoord buffer.
+            gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+
+            // Tell the texcoord attribute how to get data out of texcoordBuffer (ARRAY_BUFFER)
+            var size = 2;          // 2 components per iteration
+            var type = gl.FLOAT;   // the data is 32bit floats
+            var normalize = false; // don't normalize the data
+            var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+            var offset = 0;        // start at the beginning of the buffer
+            gl.vertexAttribPointer(
+                texcoordLocation, size, type, normalize, stride, offset);
+
+            // set the resolution
+            gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);
+
+            // Draw the rectangle.
+            var primitiveType = gl.TRIANGLES;
+            var offset = 0;
+            var count = 6;
+            gl.drawArrays(primitiveType, offset, count);
+        }
+
+        setRectangle(gl, x, y, width, height) {
+            var x1 = x;
+            var x2 = x + width;
+            var y1 = y;
+            var y2 = y + height;
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                x1, y1,
+                x2, y1,
+                x1, y2,
+                x1, y2,
+                x2, y1,
+                x2, y2,
+            ]), gl.STATIC_DRAW);
+        }
+    }
+
+    customElements.define("glsl-editor", GLSL);
+
+    customElements.define("dragable-element", Dragable)
+    customElements.define("input-element", Input)
+    customElements.define("output-element", Output)
+</script>
+<style>
+    html{
+        background-color: #23272A;
+    }
+    dragable-element, input-element, output-element{
+        background-color: #4E5D94;
+        position: absolute;
+        cursor:move;
+    }
+    source-connector{
+        padding: 10px;
+        background-color: white;
+        position: absolute;
+        top: calc(50% - 5px);
+        right: -15px;
+
+    }
+    output-connector{
+        padding: 10px;
+        background-color: white;
+        position: absolute;
+        top: calc(50% - 5px);
+        left: -15px;
+
+    }
+
+    ace-editor{
+        height: 200px;
+        width: 400px;
+        position: absolute;
+    }
+
+    ace-editor div{
+        height: 200px;
+        width: 400px;
+
+    }
+
+    glsl-editor {
+        height: 200px;
+        width: 400px;
+        background-color: #4E5D94;
+        position: absolute;
+    }
+    glsl-editor button{
+        position: absolute;
+        bottom: -25px;
+    }
+</style>
+<body>
+    <input-element style="left: 10px;top: 100px;"></input-element>
+    <output-element style="left: 1000px;top: 100px;"></output-element>
+
+
+    <glsl-editor style="left: 500px;top: 100px;"></glsl-editor>
+</body>
+</html>
