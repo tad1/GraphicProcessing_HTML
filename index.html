@@ -6,6 +6,7 @@
     <title>Document</title>
 </head>
 <script src=" https://cdn.jsdelivr.net/npm/ace-builds@1.29.0/src-min-noconflict/ace.min.js "></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.29.0/theme-tomorrow_night.min.js" integrity="sha512-wkwPfxmQrrav9ss3Wsxyo0JEkESeFvrn2oA2Z4btNlR2j5wOrSwbk7BV7kYRzQb1f82tf2HYMS76kDTvubbjNw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <link href=" https://cdn.jsdelivr.net/npm/ace-builds@1.29.0/css/ace.min.css " rel="stylesheet">
 <script>
     class Dragable extends HTMLElement {
@@ -117,6 +118,7 @@
                     }
                 }
             })
+
         }
 
     }
@@ -177,24 +179,16 @@
             this.appendChild(this.editor);
             
             this.editor = ace.edit(this.editor.id);
-            this.editor.setValue(`precision mediump float;
- 
- // our texture
- uniform sampler2D u_image;
-  
- // the texCoords passed in from the vertex shader.
- varying vec2 v_texCoord;
-  
- void main() {
-    // Look up a color from the texture.
-    gl_FragColor = texture2D(u_image, v_texCoord);
- }`)
-            // this.editor.setTheme("ace/theme/monkai")
+            this.editor.setTheme("ace/theme/tomorrow_night")
             this.editor.session.setMode("ace/mode/glsl")
         }
 
         getCode(){
             return this.editor.getValue();
+        }
+
+        setCode(code){
+            this.editor.session.setValue(code);
         }
     }
     customElements.define("ace-editor", Editor);
@@ -213,6 +207,19 @@
             this.editor.style.height = this.style.height;
             this.editor.style.width = this.style.width;
             this.appendChild(this.editor)
+
+            this.editor.setCode(`precision mediump float;
+ 
+ // our texture
+ uniform sampler2D u_image;
+  
+ // the texCoords passed in from the vertex shader.
+ varying vec2 v_texCoord;
+  
+ void main() {
+    // Look up a color from the texture.
+    gl_FragColor = texture2D(u_image, v_texCoord);
+ }`)
 
             this.compile_btn = document.createElement("button");
             this.compile_btn.innerText = "Compile";
