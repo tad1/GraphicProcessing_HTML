@@ -166,22 +166,6 @@
     }
 
 
-
-    class Shader extends Dragable {
-        constructor(){
-            super();
-        }
-
-        connectedCallback(){
-            this.buffer_canvas = document.createElement("canvas");
-            this.buffer_context = this.buffer_canvas.getContext("webgl");
-
-            this.input = new Connection()
-            this.input.type = "texture";
-
-        }
-    }
-
     class Editor extends HTMLElement {
         constructor(){
             super();
@@ -193,6 +177,18 @@
             this.appendChild(this.editor);
             
             this.editor = ace.edit(this.editor.id);
+            this.editor.setValue(`precision mediump float;
+ 
+ // our texture
+ uniform sampler2D u_image;
+  
+ // the texCoords passed in from the vertex shader.
+ varying vec2 v_texCoord;
+  
+ void main() {
+    // Look up a color from the texture.
+    gl_FragColor = texture2D(u_image, v_texCoord);
+ }`)
             // this.editor.setTheme("ace/theme/monkai")
             this.editor.session.setMode("ace/mode/glsl")
         }
@@ -471,19 +467,19 @@
 
     ace-editor{
         height: 200px;
-        width: 400px;
+        width: 600px;
         position: absolute;
     }
 
     ace-editor div{
         height: 200px;
-        width: 400px;
+        width: 600px;
 
     }
 
     glsl-editor {
         height: 200px;
-        width: 400px;
+        width: 600px;
         background-color: #4E5D94;
         position: absolute;
     }
