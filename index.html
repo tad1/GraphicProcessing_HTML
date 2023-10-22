@@ -193,7 +193,7 @@
     }
     customElements.define("ace-editor", Editor);
 
-    class Filter extends Dragable{
+    class Filter extends HTMLElement{
         constructor(){
             super();
         }
@@ -226,8 +226,20 @@
 
             /** @type {HTMLInputElement} */
             this.weight = document.createElement("input");
+            this.weight.setAttribute("type", "number")
             this.weight.value = 1;
             this.appendChild(this.weight)
+
+            /** @type {HTMLInputElement} */
+            this.slider = document.createElement("input");
+            this.slider.setAttribute("type", "range");
+            this.slider.min = "0";
+            this.slider.max = "100";
+            this.slider.addEventListener("change", ()=>{
+                this.update();
+            })
+            this.appendChild(this.slider)
+
 
             /** @type {HTMLCanvasElement} */
             this.buffer_canvas = document.createElement("canvas");
@@ -283,6 +295,7 @@
             }
             this.buffer_canvas.width = this.source.width;
             this.buffer_canvas.height = this.source.height;
+            this.slider.max = this.source.width * this.source.height;
             this.render();
             this.output.dispatchEvent(new Event("update"))
         }
@@ -299,21 +312,46 @@
             return res
         }
 
+        getPos(){
+            let y = parseInt(this.slider.value / this.buffer_canvas.width)
+            let x = (this.slider.value % this.buffer_canvas.height)
+            let res = [x, y]
+            return res
+        }
+
+        getSize(){
+            return [this.buffer_canvas.width, this.buffer_canvas.height]
+        }
+
         compile(){
             let code = `
             precision mediump float;
+            precision highp int;
  
  // our texture
  uniform sampler2D u_image;
  uniform vec2 u_textureSize;
  uniform float u_kernel[9];
  uniform float u_kernelWeight;
+ // 0-1 value
+ uniform ivec2 u_pos;
+ uniform ivec2 u_size;
   
  // the texCoords passed in from the vertex shader.
  varying vec2 v_texCoord;
   
  void main() {
     vec2 onePixel = vec2(1.0, 1.0) / u_textureSize;
+
+    ivec2 coords = ivec2(v_texCoord * vec2(u_size));
+    if(coords.y > u_pos.y){
+        return;
+    }
+
+    if( (coords.y == u_pos.y) && (coords.x > u_pos.x)){
+        return;
+    }
+
     vec4 colorSum =
       texture2D(u_image, v_texCoord + onePixel * vec2(-1, -1)) * u_kernel[0] +
       texture2D(u_image, v_texCoord + onePixel * vec2( 0, -1)) * u_kernel[1] +
@@ -457,9 +495,14 @@
             gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);
             var kernelLocation = gl.getUniformLocation(this.program, "u_kernel[0]");
             var kernelWeightLocation = gl.getUniformLocation(this.program, "u_kernelWeight");
+            var max_pos = gl.getUniformLocation(this.program, "u_pos");
+            var size = gl.getUniformLocation(this.program, "u_size");
 
             gl.uniform1fv(kernelLocation, this.getKernel());
             gl.uniform1f(kernelWeightLocation, this.getWeight());
+            gl.uniform2iv(max_pos, this.getPos());
+            gl.uniform2iv(size, this.getSize());
+
 
             // Draw the rectangle.
             var primitiveType = gl.TRIANGLES;
@@ -791,6 +834,10 @@
         height: 200px;
         width: 600px;
 
+    }
+
+    canvas{
+        image-rendering: pixelated;
     }
 
     glsl-editor {
